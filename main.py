@@ -1,13 +1,16 @@
 import os
 os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+os.environ["CHROMA_TELEMETRY_ENABLED"] = "false"
 
 from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_ollama import ChatOllama
 import gradio as gr
+
+VECTOR_DB_DIR = "./vector_db"
 
 def get_ollama_model():
     llm = ChatOllama(model="gemma3:1b")  # or "mistral", "gemma", etc.
@@ -27,10 +30,19 @@ def split_text(data):
     chunks = text_splitter.split_documents(data)
     return chunks
 
-def build_vector_database(chunks):
+def build_vector_database(chunks, persist_directory=VECTOR_DB_DIR):
     embedding_model = embedding()
+    vectordb = Chroma.from_documents(chunks, embedding_model, persist_directory=persist_directory)
+    vectordb.persist()
+    return vectordb
 
-    vectordb = Chroma.from_documents(chunks, embedding_model)
+def get_vector_db(file_path, persist_directory=VECTOR_DB_DIR):
+    if os.path.exists(persist_directory):
+        vectordb = Chroma(persist_directory=persist_directory, embedding_function=embedding())
+    else:
+        splits = load_document(file_path)
+        chunks = split_text(splits)
+        vectordb = build_vector_database(chunks, persist_directory)
     return vectordb
 
 def embedding():
@@ -44,15 +56,14 @@ def retriever(file):
     retriever = vectordb.as_retriever()
     return retriever
 
-def retriever_qa(file, query):
-    llm = get_ollama_model()
-    retriever_obj = retriever(file)
-    qa = RetrievalQA.from_chain_type(llm=llm,
-                                    chain_type="stuff",
-                                    retriever=retriever_obj,
-                                    return_source_documents=False)
-    response = qa.invoke(query)
+def retriever_qa(_, query):
+    response = qa_chain.invoke(query)
     return response['result']
+
+# Global initialization
+retriever_obj = get_vector_db("./data/airwindows.txt").as_retriever()
+llm = get_ollama_model()
+qa_chain = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever_obj)
 
 # Create Gradio interface
 rag_application = gr.Interface(
