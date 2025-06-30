@@ -7,6 +7,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_ollama import ChatOllama
+import gradio as gr
 
 def get_ollama_model():
     llm = ChatOllama(model="gemma3:1b")  # or "mistral", "gemma", etc.
@@ -53,8 +54,19 @@ def retriever_qa(file, query):
     response = qa.invoke(query)
     return response['result']
 
-# Get the query from the user input
-query = input("Please enter your query: ")
+# Create Gradio interface
+rag_application = gr.Interface(
+    fn=retriever_qa,
+    allow_flagging="never",
+    inputs=[
+        # gr.File(label="Upload PDF File", file_count="single", file_types=['.pdf'], type="filepath"),  # Drag and drop file upload
+        gr.Text(value="./data/airwindows.txt", visible=False),
+        gr.Textbox(label="Input Query", lines=2, placeholder="Type your question here...")
+    ],
+    outputs=gr.Textbox(label="Output"),
+    title="Airwindows Plugins Expert",
+    description="Ask any question related to Airwindows Plugins. The answer is based on Airwindopedia's content."
+)
 
-# Print the generated response
-print(retriever_qa("./data/airwindows.txt", query))
+# Launch the app
+rag_application.launch(server_name="0.0.0.0", server_port= 7860)
