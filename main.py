@@ -1,9 +1,13 @@
 import os
+
+from langchain_core.prompts import PromptTemplate
+
 os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
 os.environ["CHROMA_TELEMETRY_ENABLED"] = "false"
 
 from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.text_splitter import CharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
@@ -22,18 +26,37 @@ def load_document(file):
     return loaded_document
 
 def split_text(data):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=50,
+    text_splitter = CharacterTextSplitter(
+        separator="############",
+        chunk_size=8751,
+        chunk_overlap=0,
         length_function=len,
     )
-    chunks = text_splitter.split_documents(data)
+    largerChunks = text_splitter.split_documents(data)
+
+    chunks = []
+    fine_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=50,
+        length_function=len
+    )
+    for chunk in largerChunks:
+        if len(chunk.page_content) > 1000:
+            chunks.extend(fine_splitter.split_documents([chunk]))
+        else:
+            chunks.append(chunk)
     return chunks
 
 def build_vector_database(chunks, persist_directory=VECTOR_DB_DIR):
     embedding_model = embedding()
-    vectordb = Chroma.from_documents(chunks, embedding_model, persist_directory=persist_directory)
-    vectordb.persist()
+    vectordb = Chroma.from_documents(
+        documents=chunks,
+        embedding=embedding_model,
+        persist_directory=persist_directory
+    )
+    # Force persistence by calling .persist() only if available
+    if hasattr(vectordb, "persist"):
+        vectordb.persist()
     return vectordb
 
 def get_vector_db(file_path, persist_directory=VECTOR_DB_DIR):
@@ -74,7 +97,7 @@ rag_application = gr.Interface(
         gr.Text(value="./data/airwindows.txt", visible=False),
         gr.Textbox(label="Input Query", lines=2, placeholder="Type your question here...")
     ],
-    outputs=gr.Textbox(label="Output"),
+    outputs=gr.Markdown(label="Output"),
     title="Airwindows Plugins Expert",
     description="Ask any question related to Airwindows Plugins. The answer is based on Airwindopedia's content."
 )
